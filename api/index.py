@@ -303,7 +303,7 @@ def handle_regular_message(message: dict):
         return send_message(chat_id, "目前沒有任何人加入推播通知名單", reply_to_message_id=msg_id)
 
     mentions = build_html_mentions(subs)
-    notify_text = f"呼叫🚨\n{mentions}"
+    notify_text = f"臥操🚨\n{mentions}"
 
     return send_message(
         chat_id,
