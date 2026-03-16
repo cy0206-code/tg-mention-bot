@@ -62,20 +62,6 @@ def get_chat_member(chat_id: int, user_id: int):
 
 # -----------------------------
 # Gist 儲存
-# 資料格式：
-# {
-#   "groups": {
-#     "-1001234567890": {
-#       "title": "群組名稱",
-#       "subscribers": {
-#         "111111111": {
-#           "name": "王小明",
-#           "username": "abc"
-#         }
-#       }
-#     }
-#   }
-# }
 # -----------------------------
 def gist_headers():
     return {
@@ -163,16 +149,21 @@ def add_subscriber(db: dict, chat_id: int, title: str, user: dict):
     group = ensure_group(db, chat_id, title)
     subs = group.setdefault("subscribers", {})
     uid = str(user["id"])
+    already_exists = uid in subs
+
     subs[uid] = {
         "name": get_user_display_name(user),
         "username": user.get("username", "")
     }
+    return already_exists
 
 
 def remove_subscriber(db: dict, chat_id: int, title: str, user_id: int):
     group = ensure_group(db, chat_id, title)
     subs = group.setdefault("subscribers", {})
+    existed = str(user_id) in subs
     subs.pop(str(user_id), None)
+    return existed
 
 
 def list_subscribers(db: dict, chat_id: int):
@@ -186,7 +177,7 @@ def build_html_mentions(subscribers: dict) -> str:
         raw_name = info.get("name") or uid
         safe_name = html.escape(raw_name, quote=True)
         parts.append(f'<a href="tg://user?id={uid}">{safe_name}</a>')
-    return " ".join(parts)
+    return "、".join(parts)
 
 
 def is_admin(chat_id: int, user_id: int) -> bool:
@@ -234,7 +225,6 @@ def handle_command(message: dict):
 
     cmd = text.split()[0].split("@")[0].lower()
 
-    # 私訊全部拒絕
     if is_private_chat(message):
         return only_group_service_text(chat_id, msg_id)
 
@@ -248,10 +238,13 @@ def handle_command(message: dict):
 
     if cmd == "/add":
         db = load_db()
-        add_subscriber(db, chat_id, title, user)
+        already_exists = add_subscriber(db, chat_id, title, user)
         save_db(db)
         delete_message(chat_id, msg_id)
-        return jsonify({"ok": True})
+
+        if already_exists:
+            return send_message(chat_id, "你已經在推播通知名單中", parse_mode=None)
+        return send_message(chat_id, "你已加入推播通知", parse_mode=None)
 
     if cmd == "/remove":
         db = load_db()
@@ -299,9 +292,9 @@ def handle_regular_message(message: dict):
     sender = message.get("from", {})
     sender_id = sender.get("id")
 
-    # 只有管理員可觸發
+    # 非管理員：直接忽略，不回任何訊息
     if not sender_id or not is_admin(chat_id, sender_id):
-        return send_message(chat_id, "只有群組管理員可以使用此通知功能", reply_to_message_id=msg_id)
+        return jsonify({"ok": True})
 
     db = load_db()
     subs = list_subscribers(db, chat_id)
